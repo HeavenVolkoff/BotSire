@@ -1,0 +1,152 @@
+{
+  "getMe": null,
+  "sendMessage": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "text": ["String"]
+    },
+    "optional": {
+      "parse_mode": ["String"],
+      "disable_web_page_preview": ["Boolean"],
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    }
+  },
+  "forwardMessage": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "from_chat_id": ["String", "Integer"],
+      "message_id": ["Integer"]
+    },
+    "optional": null
+  },
+  "sendPhoto": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "photo": ["InputFile(image)", "String"]
+    },
+    "optional": {
+      "caption": ["String"],
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "photo"
+  },
+  "sendAudio": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "audio": ["InputFile(.mp3)", "String"]
+    },
+    "optional": {
+      "duration": ["Integer"],
+      "performer": ["String"],
+      "title": ["String"],
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "audio"
+  },
+  "sendDocument": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "document": ["InputFile", "String"]
+    },
+    "optional": {
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "document"
+  },
+  "sendSticker": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "sticker": ["InputFile(.webp)", "String"]
+    },
+    "optional": {
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "sticker"
+  },
+  "sendVideo": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "video": ["InputFile(.mp4)", "String"]
+    },
+    "optional": {
+      "duration": ["Integer"],
+      "caption": ["String"],
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "video"
+  },
+  "sendVoice": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "voice": ["InputFile(.mp4)", "String"] 
+    },
+    "optional": {
+      "duration": ["Integer"],
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    },
+    "fileUpload": "voice"
+  },
+  "sendLocation": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "latitude": ["Float"],
+      "longitude": ["Float"]
+    },
+    "optional": {
+      "reply_to_message_id": ["Integer"],
+      "reply_markup": ["ReplyKeyboardMarkup", "ReplyKeyboardHide", "ForceReply"]
+    }
+  },
+  "sendChatAction": {
+    "required": {
+      "chat_id": ["String", "Integer"],
+      "action": ["String"]
+    },
+    "optional": null
+  },
+  "getUserProfilePhotos": {
+    "required": {"user_id": ["Integer"]},
+    "optional": {
+      "offset": ["Integer"],
+      "limit": ["Integer"]
+    }
+  },
+  "getUpdates": {
+    "required": null,
+    "optional": {
+      "offset": ["Integer"],
+      "limit": ["Integer"],
+      "timeout": ["Integer"]
+    }
+  },
+  "setWebhook": {
+    "required": null,
+    "optional": {
+      "url": ["String"],
+      "certificate": ["InputFile(.pem)"]
+    },
+    "fileUpload": "certificate"
+  },
+  "getFile": {
+    "required": {"file_id": ["String"]},
+    "optional": null
+  },
+  "answerInlineQuery": {
+    "required": {
+      "inline_query_id": ["String"],
+      "results": ["Array", "InlineQueryResult"]
+    },
+    "optional": {
+      "cache_time": ["Integer"],
+      "is_personal": ["Boolean"],
+      "next_offset": ["String"]
+    }
+  }
+}
