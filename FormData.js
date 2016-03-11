@@ -1,14 +1,6 @@
 "use strict";
 
 /**
- * Shim Libs
- *
- * This are shim libs, used because of node lack of support to full ES6 spec
- * @todo: Remove this once the ES6 spec is 'fully' implemented on node
- */
-require('./shim.js');
-
-/**
  * Node Internal Modules
  */
 const stream = require('stream');
@@ -19,6 +11,7 @@ const fs     = require('fs');
 /**
  * NPM External Modules
  */
+const Promise  = require('bluebird');
 const fileType = require('file-type');
 const mime     = require('mime-types');
 
@@ -56,8 +49,10 @@ class FormData extends stream.Transform{
      *
      * @param [opts] {Object}
      * @param   [opts.promiseTimeout]   {Number}
-     * @param   [opts.streamTimeout]    {Number}
-     * @param   [opts.guessContentType] {Boolean}
+     * @param   [opts.requestTimeout]   {Number}
+     * @param   [opts.speedLimit]       {Number}
+     * @param   [opts.responseTimeout]  {Number}
+     * @param   [opts.guess]            {Boolean}
      * @param   [opts.arrayTransform]   {Function|String}
      * @param   [opts.arrayDefault]     {*}
      */
@@ -71,11 +66,11 @@ class FormData extends stream.Transform{
         this.overheadLength = 0;
 
         //Options
-        this.guessContentType = util.isBoolean(opts.guessContentType)? opts.guessContentType       : true;
-        this.promiseTimeout   = util.isAssigned(opts.promiseTimeout) ? Number(opts.promiseTimeout) : 300;
-        /**@todo calculate timeout based on content-length and a downloadSpeed limit (100kbps)*/
-        //this.streamTimeout    = util.isAssigned(opts.streamTimeout)  ? Number(opts.streamTimeout)  : 500;
-        this.speedLimit       = util.isAssigned(opts.speedLimit)     ? Number(opts.speedLimit)     : 131072; //128kbps
+        this.speedLimit       = util.isAssigned(opts.speedLimit)      ? Number(opts.speedLimit)      : 128 * 1024; //128kB/s
+        this.promiseTimeout   = util.isAssigned(opts.promiseTimeout)  ? Number(opts.promiseTimeout)  : 1000;  //1s
+        this.requestTimeout   = util.isAssigned(opts.requestTimeout)  ? Number(opts.requestTimeout)  : 120 * 1000;
+        this.responseTimeout  = util.isAssigned(opts.responseTimeout) ? Number(opts.responseTimeout) : 120 * 1000; //2min
+        this.guess            = util.isBoolean(opts.guess)            ? opts.guess                   : true;
 
         if(util.isFunction(opts.arrayTransform) && !util.isGeneratorFunction(opts.arrayTransform)){
             this._arrayTransform = opts.arrayTransform;
@@ -121,60 +116,63 @@ class FormData extends stream.Transform{
             if(!util.isBuffer(val)){
                 if(val instanceof(stream.Stream)){
                     if(val instanceof http.ClientRequest){
-                        if(val.finished){
-                            this.emit('error', new Error('Client Request stream already finished'));
-                            //We attempt to continue with empty value
-                            val = '';
-
-                        }else{
-                            let responseListener = res => this._transform({field: field, val: res, opts: opts}, encoding, done);
-
-                            //Check if stream already has a timeout and if we have a valid streamTimeout
-                            if(!val.timeoutCb && this.streamTimeout){
-                                val.setTimeout(this.streamTimeout);
-                            }
-
-                            val.once('timeout', () => {
-                                /**@check necessary?*/
-                                val.removeListener('response', responseListener);
-                                this.emit('error', new Error('Client Request stream Timeout'));
-                                //We attempt to continue with empty value
-                                this._transform({field: field, opts: opts}, encoding, done);
-                            });
-                            val.once('response', responseListener);
-                            val.end();
+                        if(val.finished) {
+                            done(new Error('Client Request stream already finished'));
                             return;
                         }
+
+                        let responseListener = res => this._transform({field: field, val: res, opts: opts}, encoding, done);
+
+                        //@todo Cant get timeout to work properly
+                        //Check if stream don't have a timeout already set and if we have a valid streamTimeout
+                        //if(!val.timeoutCb && this.requestTimeout){
+                        //    val.setTimeout(this.requestTimeout);
+                        //}
+                        //
+                        //val.once('timeout', () => {
+                        //    /**@check necessary?*/
+                        //    val.removeListener('response', responseListener);
+                        //    this.emit('error', new Error('Client Request stream Timeout'));
+                        //    //We attempt to continue with empty value
+                        //    this._transform({field: field, opts: opts}, encoding, done);
+                        //});
+                        val.once('response', responseListener).end();
+                        return;
 
                     }else if(val.readable || val instanceof(stream.Readable)){
                         //fs and http IncomingMessage streams have internal fileName and/or contentType
                         if(val instanceof(http.IncomingMessage)){
                             opts.fileName = opts.fileName || val.path;
 
+                            //Get length from request if present
+                            if(util.isString(val.headers['content-length'])){
+                                opts.length = Number(
+                                    this.guess?
+                                    (val.headers['content-length'] || opts.length)
+                                    : (opts.length || val.headers['content-length'])
+                                );
+                            }
+
                             //Get contentType from request if present
                             if(util.isString(val.headers['content-type'])){
-                                opts.contentType = this.guessContentType?
-                                    (val.headers['content-type'] || opts.contentType) : (opts.contentType || val.headers['content-type']);
+                                opts.contentType = this.guess?
+                                    (val.headers['content-type'] || opts.contentType)
+                                    : (opts.contentType || val.headers['content-type']);
                             }
 
                         }else if(util.isString(val.path)) {
                             opts.fileName = opts.fileName || val.path;
                         }
 
-                        util.readableStreamToPromise(val, this.streamTimeout, true)
+                        //@todo timeout again
+                        util.readableStreamToPromise(val/*, opts.length? ((opts.length / this.speedLimit) * 1000) : this.responseTimeout*/)
                             .then(val => this._transform({field: field, val: val, opts: opts}, encoding, done))
-                            .catch(({error, data}) => {
-                                this.emit('error', error);
-                                //Continue with what data we could read
-                                this._transform({field: field, val: data, opts: opts}, encoding, done);
-                            });
+                            .catch(done);
 
                         return;
 
                     }else{ //Unparsable kind of stream, probably Writable or old Style
-                        this.emit('error', new Error('Unparsable kind of stream'));
-                        //We attempt to continue with empty value
-                        val = '';
+                        done(new Error('Unparsable kind of stream'));
                     }
 
                 }else if(util.isArray(val)){
@@ -202,11 +200,7 @@ class FormData extends stream.Transform{
 
                     promise
                         .then(val => this._transform({field: field, val: val, opts: opts}, encoding, done))
-                        .catch(error => {
-                            this.emit('error', error);
-                            //We attempt to continue with empty value
-                            this._transform({field: field, opts: opts}, encoding, done);
-                        });
+                        .catch(done);
                     return;
 
                 }else{
@@ -220,7 +214,7 @@ class FormData extends stream.Transform{
                 }
             }
 
-        }else {
+        }else if(!util.isString(val)){ //Ok not an Object neither a String
             try{
                 val = JSON.stringify(val) || '';
 
@@ -275,7 +269,7 @@ class FormData extends stream.Transform{
         let ext  = fileName.ext;
         fileName = fileName.name;
 
-        if(this.guessContentType){
+        if(this.guess){
             /**@type {{ext: String, mime: String}|Null|Boolean}*/
             let type;
             if(util.isBuffer(value) && (type = fileType(value))){
@@ -285,8 +279,8 @@ class FormData extends stream.Transform{
             }else if(type = mime.lookup(ext)){
                  contentType = type;
 
+            //Make sure extension is compatible with contentType
             }else if(contentType && contentType !== mime.lookup(ext)){
-                //Make sure extension is compatible with contentType
                 ext = '.' + mime.extension(contentType);
             }
 
@@ -296,9 +290,7 @@ class FormData extends stream.Transform{
                 contentType = contentType.mime;
             }
 
-         /** @check should we do this? We are not guessing, so the user should know what he is doing, right?
-           * maybe add a option?*/
-        }else if(contentType !== mime.lookup(ext)){ //Make sure extension is compatible with contentType
+        }else if(!ext){ //We have content-type but no extension, so get one
             ext = '.' + mime.extension(contentType);
         }
 
@@ -317,7 +309,7 @@ class FormData extends stream.Transform{
         /**@check why add CRLF? does this account for custom/multiple CRLFs?*/
         this.overheadLength += Buffer.byteLength(header) + LINE_BREAK.length;
 
-        if(!util.isInteger(length) || length < 0){
+        if(this.guess || !util.isInteger(length) || length < 0){
             if(length < 0){
                 this.emit(new Error('Invalid Length'));
             }
@@ -328,6 +320,8 @@ class FormData extends stream.Transform{
             }else if(util.isBuffer(value)){
                 length = value.length;
 
+            }else{
+                this.emit(new Error('Invalid Length'));
             }
         }
 

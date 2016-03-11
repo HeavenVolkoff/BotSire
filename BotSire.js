@@ -37,43 +37,41 @@
 
 /**
  * Performance concerns:
- * We should follow the benchmarking results of this test
+ * We should follow the benchmarking results of this tests
  * @link: https://github.com/bevry/esnext-benchmarks
  */
 
 /**
- * Shim Libs
- *
- * This are shim libs, used because of node lack of support to full ES6 spec
- * @todo: Remove this once the ES6 spec is 'fully' implemented on node
- */
-require('./shim.js');
-
-/**
  * Node Internal Modules
  */
+const EventEmitter = require('events');
 const https        = require('https');
 const url          = require('url');
-const EventEmitter = require('events');
 
 /**
  * NPM External Modules
  */
-const debug = require('debug');
-const co    = require('co');
+const Promise = require('bluebird');
+const debug   = require('debug');
 
 /**
  * Internal Modules
  */
 const FormData = require('./FormData.js');
+const Command  = require('./Command.js');
 const errors   = require('./errors.js');
 const util     = require('./util.js');
+
+/**
+ * JSON files
+ */
+/**@type {Object}*/
+const methodDefinitions = require('./methods.json');
 
 /*
  * Module Constants
  */
 const telegramBotApiUrl = 'https://api.telegram.org/bot';
-const methodDefinitions = util.parseJsonFileSync('./methods.json');
 const messageTypes      = [
     //text is parsed separated because of command types
     /*'text',*/ 'audio', 'document', 'photo', 'sticker',
@@ -85,21 +83,25 @@ const messageTypes      = [
     /*, 'migrate_to_chat_id', 'migrate_from_chat_id'*/
 ]; /**@check Don't know if the last ones are messages types or just properties of other messages*/
 
+//BlueBird config
+Promise.config({
+    cancellation: true
+});
+
 /*================= Private Function =================*/
 /**
  * Populate BotSire internal properties
  *
- * @param self {BotSire}
  * @param opts {Object}
  */
-const populate = (self, opts) => {
+const populateOptions = (opts) => {
     /**
      * BotSire Default Options
      * @type {Object}
      */
     let options = {
-        requestTimeout:  300,
-        poolingInterval: 10, //seconds
+        requestTimeout:  2000,
+        poolingInterval: 120, //2min
         poolingLimit:    100
     };
 
@@ -107,34 +109,37 @@ const populate = (self, opts) => {
         options.token = opts;
 
     }else if(util.isObject(opts)){
-        options.token           = util.isString(opts.token)? opts.token : '';
-        options.requestTimeout  = util.isInteger(opts.requestTimeout)? opts.requestTimeout : options.requestTimeout;
+        options.token           = util.isString(opts.token)           ? opts.token           : '';
+        options.requestTimeout  = util.isInteger(opts.requestTimeout) ? opts.requestTimeout  : options.requestTimeout;
         options.poolingInterval = util.isInteger(opts.poolingInterval)? opts.poolingInterval : options.poolingInterval;
-        options.poolingLimit    = util.isInteger(opts.poolingLimit)? opts.poolingLimit : options.poolingLimit
+        options.poolingLimit    = util.isInteger(opts.poolingLimit)   ? opts.poolingLimit    : options.poolingLimit;
+
+        /*Command Options*/
+        options.command = opts.command;
+
+        /*FormData Options*/
+        options.formData = opts.formData;
     }
 
-    Object.assign(self, options);
+    return options;
 };
 
 /**
  * Generate Telegram Bot API methods as defined in methods.json file
  */
 const generateMethodFunctions = () => {
-    if(!methodDefinitions){
-        throw new TypeError('Unable to read Bot API method definitions from ./methods.json');
-    }
-
-    for(let method in methodDefinitions){
-        if(!methodDefinitions.hasOwnProperty(method)){
+    for(let methodName in methodDefinitions){
+        if(!methodDefinitions.hasOwnProperty(methodName)){
             continue;
         }
-        method = methodDefinitions[method];
 
+        /**@type {{required: {Object, null}, optional: {Object, null}, [fileUpload]: {String}}}*/
+        let method = methodDefinitions[methodName];
         let requiredArgs;
         let fileUploadArg;
 
         if(method){
-            requiredArgs  = method.required? Object.keys(method) : '';
+            requiredArgs  = method.required? Object.keys(method.required) : '';
             fileUploadArg = method.fileUpload;
 
         }else{
@@ -142,7 +147,7 @@ const generateMethodFunctions = () => {
             fileUploadArg = null;
         }
 
-        Object.defineProperty(BotSire.prototype, method, {
+        Object.defineProperty(BotSire.prototype, methodName, {
             writable: true,
             enumerable: false,
             value: function botApiGenericMethod(){
@@ -163,11 +168,12 @@ const generateMethodFunctions = () => {
                 }
 
                 //if is a object then we use formData
-                if(fileUpload && util.isObject(methodArgs[fileUploadArg])){
+                if(fileUploadArg && util.isObject(methodArgs[fileUploadArg])){
                     fileUpload = true;
                 }
 
-                return this._request(method, methodArgs, fileUpload);
+                this.log(`Call method ${methodName} with args ${util.inspect(methodArgs, {colors: true, depth: 0})}`);
+                return this._request(methodName, methodArgs, fileUpload);
             }
         })
     }
@@ -181,26 +187,49 @@ class BotSire extends EventEmitter{
         super();
 
         //Populate internal properties
-        populate(this, opts);
+        this.config = populateOptions(opts);
 
-        if(!this.token){
-            throw new TypeError(`Invalid Bot Token: ${this.token}`);
+        if(!this.config.token){
+            throw new TypeError(`Invalid Bot Token: ${this.config.token}`);
         }
 
         //Generate generic bot api methods from methods.json
         generateMethodFunctions();
 
-        /*======= Private Variables =======*/
-        this._pooling = null;
-        /*======= Private Variables =======*/
+        //Private Properties
+        this._polling = null;
+
+        //Public Properties
+        this.command = new Command(this.config.command);
+        this.config.command = null; //we don't need to save this after init Command
 
         //Logger Set-up
-        this.log = debug('BotSire');
-        this.on('error', err => this.log(err)); //Log Errors
-        this.on('message', msg => this.log(`New message id: ${msg.message_id}` + (msg.from? ` from ${msg.from.first_name}` : '')));
+        this.log = debug('BotSire:log');
+        this.err = debug('BotSire:error');
+        let messageListener = msg => this.log('New message: ' + util.inspect(msg, {colors: true}));
+        this.on('error', err => this.err(err.message + ', Stack Trace: ' + err.stack)); //Log Errors
+        this.on('message', messageListener);
+        this.on('inline_query', messageListener);
+        this.on('chosen_inline_result', messageListener);
+
+        //Pooling Abort
+        this.polling.abort = () => {
+            if(this._polling && !this._polling.abort){
+                this._polling.promise.cancel();
+                this._polling.promise = null;
+                this._polling.abort = true;
+                this._polling.timeout = 1;
+
+                this.log('Polling was cancelled');
+                return;
+            }
+
+            this.log('Polling is not running');
+        };
 
         this.log('Waiting bot personal information...');
 
+        //Start
         this.getMe().then(result => {
             this.id       = result.id;
             this.name     = result.first_name;
@@ -208,50 +237,69 @@ class BotSire extends EventEmitter{
 
             this.log(`Hello owner, I am Bot ${this.id}, but you can call me ${this.name}, my username on Telegram is @${this.username}. Let's get to work...`);
             this.emit('ready');
-
-        }).catch(err => this.emit('error', err));
+        });
     }
 
-    pooling(){
-        if(this.webHook){
-            this.log('WebHook is set, please disable webHook before using pooling');
+    polling(){
+        if(this.webHook){/**@todo WebHook logic*/
+            this.log('WebHook is set, please disable webHook before using polling');
             return false;
         }
 
-        if(!this._pooling){
-            this._pooling = {
+        if(!this._polling){
+            this._polling = {
+                promise: null,
                 abort: false,
+                timeout: 1,
                 offset: 0
             }
 
-        }else if(!this._pooling.abort){
+        }else if(!this._polling.abort){
             this.log('Pooling already running');
             return;
 
         }else{
-            this._pooling.abort = false;
+            this._polling.abort = false;
         }
 
-        let poolingLoop = () => {
-            if(this._pooling.abort){
-                this.log('Pooling was aborted');
+        let pollingLoop = () => {
+            if(this._polling.abort){
                 return;
             }
 
-            this.getUpdates({offset: this._pooling.offset, limit: this.poolingLimit, timeout: this.poolingInterval})
-                .then(updates => this._parseUpdate(updates))
-                .catch(err => {
-                    this.log('Error while pooling for data');
-                    this.emit('error', err);
+            (this._polling.promise = this._request(
+                'getUpdates',
+                {offset: this._polling.offset, limit: this.config.poolingLimit, timeout: this.config.poolingInterval},
+                false,
+                {requestTimeout: this.config.poolingInterval * 2000}
+
+            )).then(updates => {
+                this._polling.timeout = 1;
+                this._parseUpdates(updates)
+
+            }).catch(err => {
+                //Was intentionally cancelled not an error
+                if(!(err instanceof Promise.CancellationError)){
+                    this.emit('error', new errors.PoolingError(err));
                     /**
                      * @todo| Check errors, beware that webHook can be set, we should verify this, and set the
                      * @todo| this.webHook variable if so
                      */
-                })
-                .finally(() => poolingLoop());
+
+                    this._polling.timeout *= 2; //Timeout to reconnect
+                }
+
+            }).finally(() => {
+                if(this._polling.timeout > 1){
+                    setTimeout(() => pollingLoop(), this._polling.timeout);
+                    return;
+                }
+
+                process.nextTick(() => pollingLoop());
+            });
         };
 
-        poolingLoop();
+        pollingLoop();
 
         return true;
     }
@@ -259,48 +307,55 @@ class BotSire extends EventEmitter{
     /**
      * Parse Update Array
      *
-     * @param updates {{update_id, message, inline_query, chosen_inline_result}[]}
+     * @param updates {Array}
      * @private
      */
-    _parseUpdate(updates){
+    _parseUpdates(updates){
         let counter;
 
         if(util.isArray(updates)){
             if(updates.length){
                 //just to make sure
-                for(counter = 0; updates[counter].update_id < this._pooling.offset && counter < updates.length; counter++){}
+                for(counter = 0; updates[counter].update_id < this._polling.offset && counter < updates.length; counter++){}
 
                 this.log(`Received ${updates.length - counter} new messages`);
 
                 for(; counter < updates.length; counter++){
-                    let update = updates[counter];
-
-                    if(util.isObject(update)){
-                        if(update.message){
-                            this.emit('message', update.message);
-                            console.log(require('util').inspect(update.message, {colors: true}));
-                            //this._parseMessage(update.message);
-                            continue;
-
-                        }else if(update.inline_query){
-                            this.emit('inlineQuery', update.inline_query);
-                            continue;
-
-                        }else if(update.chosen_inline_result){
-                            this.emit('chosenInlineResult', update.chosen_inline_result);
-                            continue;
-                        }
-                    }
-
-                    this.emit('error', new errors.UpdateError());
+                    this._parseUpdate(updates[counter]);
                 }
 
-                this._pooling.offset = updates[counter - 1].update_id + 1;
+                this._polling.offset = updates[counter - 1].update_id + 1;
             }
 
         }else{
-            this.emit('error', new errors.UpdateError());
+            this.emit('error', new errors.UpdateError(updates));
         }
+    }
+
+    /**
+     * Parse Update Object
+     *
+     * @param update {{update_id, message, inline_query, chosen_inline_result}}
+     * @private
+     */
+    _parseUpdate(update){
+        if(util.isObject(update)){
+            if(update.message){
+                this.emit('message', update.message);
+                this._parseMessage(update.message);
+                return;
+
+            }else if(update.inline_query){
+                this.emit('inline_query', update.inline_query);
+                return;
+
+            }else if(update.chosen_inline_result){
+                this.emit('chosen_inline_result', update.chosen_inline_result);
+                return;
+            }
+        }
+
+        this.emit('error', new errors.UpdateError(update));
     }
 
     /**
@@ -313,42 +368,55 @@ class BotSire extends EventEmitter{
      * @private
      */
     _parseMessage(message){
+        /**@todo Message custom type creation*/
         if(message.text){
+            if(message.text[0] === '/'){ //we got a command
+                return this.command.emit(message.text, message).catch(err => this.emit('error', err));
+            }
 
+            this.emit('text', message);
 
         }else{
             for(let counter = 0; counter < messageTypes.length; counter++){
                 let type = messageTypes[counter];
 
                 if(message[type]){
-                    this.emit(type);
+                    this.emit(type, message);
                     return;
                 }
             }
 
-            this.emit('error', new errors.InvalidMessage());
+            this.emit('error', new errors.MessageError(message));
         }
     }
 
     _methodUrl(method) {
-        return `${telegramBotApiUrl + this.token}/${method}`;
+        return `${telegramBotApiUrl + this.config.token}/${method}`;
     }
 
-    _request(methodName, methodArgs, fileUpload) {
+    _request(methodName, methodArgs, fileUpload, config) { //for now opts are internal use only
+        if(util.isObject(config)){
+            config = Object.assign({}, this.config, config);
+
+        }else{
+            config = this.config;
+        }
+
         this.log(`Request for method ${methodName}`);
 
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve, reject, onCancel) => {
             let request;
             let requestOpts    = url.parse(this._methodUrl(methodName));
             requestOpts.method = 'POST';
             requestOpts.port   = 443;
 
-            let errorListener;
+            let clear;
+            /**@todo get Socket Timeout to work properly*/
 
             if(fileUpload){
                 let fields          = Object.keys(methodArgs);
                 let index           = 0;
-                let formData        = new FormData();/**@todo allow custom options*/
+                let formData        = new FormData(config.formData); //allow custom options
                 let endCalled       = false;
                 requestOpts.headers = formData.getHeaders();
                 request             = https.request(requestOpts);
@@ -358,7 +426,7 @@ class BotSire extends EventEmitter{
                         formData.end();
                         return;
 
-                    }else if(index === fields.length){ //edge cases when last append returned false
+                    }else if(index === fields.length){ //cases when last append returned false
                         endCalled = true;
                         formData.end();
                         return;
@@ -380,13 +448,9 @@ class BotSire extends EventEmitter{
                     }
                 };
 
-                let endListener = () => {
-                    request.setHeader('Content-Length', formData.getLength());
-                    /**@todo set timeout here*/
-                    request.end()
-                };
+                let endListener = () => request.end;
 
-                errorListener = err => {
+                clear = () => {
                     formData.removeListener('end', endListener);
                     formData.removeListener('drain', drainListener);
                     formData.unpipe(request);
@@ -397,11 +461,13 @@ class BotSire extends EventEmitter{
                     }
 
                     request.abort(); //cancel request event
-                    reject(err);
                 };
 
                 formData.pipe(request);
-                formData.once('error', errorListener);
+                formData.once('error', err => {
+                    clear();
+                    reject(err);
+                });
                 formData.on('drain', drainListener);
                 formData.once('end', endListener);
 
@@ -426,31 +492,28 @@ class BotSire extends EventEmitter{
 
                 request = https.request(requestOpts);
 
-                errorListener = err => {
-                    request.abort();
-                    reject(err);
-                };
+                clear = () => request.abort();
 
                 //Allow us to bind request events before pushing data
-                process.nextTick(request.write.bind(request, methodJsonParams, 'utf8', () => request.end()));
+                process.nextTick(() => request.write(methodJsonParams, 'utf8', () => request.end));
             }
 
             //Listen to request Events
-            request.once('error', errorListener);
-            request.once('response', res => {
-                res.setEncoding('utf8'); //get as string
-                if(res.statusCode >= 200 && res.statusCode < 300){
-                    resolve(util.readableStreamToPromise(res, this.requestTimeout, true))
-
-                }else{
-                    res.resume();//throw data away
-                    reject(new errors.RequestError(`Request error: ${res.statusMessage}`, res.statusCode));
-                }
+            request.once('error', err => {
+                clear();
+                reject(err);
             });
 
-            if(this.requestTimeout){/**@todo remove this from here*/
-                request.setTimeout(this.requestTimeout, () => errorListener(new Error('Request Timeout')));
-            }
+            request.once('response', res => {
+                res.setEncoding('utf8'); //get as string
+                if(res.statusCode < 200 || res.statusCode >= 300){
+                    this.emit('error', new errors.RequestError(res.statusMessage, res.statusCode));
+                }
+
+                resolve(util.readableStreamToPromise(res/*, config.requestTimeout*/));/**@todo timeout*/
+            });
+
+            onCancel(clear);
 
         }).then(json => {
             this.log(`Received result for ${methodName}`);
@@ -459,13 +522,16 @@ class BotSire extends EventEmitter{
             json = JSON.parse(json);
 
             if(json.ok){
-                this.log(`Telegram Bot Api ${methodName} successful` + (json.description? ` description: ${json.description}` : ''));
+                this.log(`Call to ${methodName} successful` + (json.description? ` description: ${json.description}` : ''));
                 return json.result;
             }
 
             throw new errors.TelegramError(json.description, json.error_code);
 
-        }).catchThrow(err => this.log(`Error while processing ${methodName}: ${err}`));
+        }).catch(err => {
+            this.emit('error', new errors.MethodError(err));
+            throw err;
+        });
     }
 }
 

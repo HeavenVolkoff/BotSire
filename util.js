@@ -1,22 +1,20 @@
 "use strict";
 
 /**
- * Shim Libs
- *
- * This are shim libs, used because of node lack of support to full ES6 spec
- * TODO: Remove this once the ES6 spec is 'fully' implemented on node
- */
-require('./shim.js');
-
-/**
  * Node Internal Modules
  */
 const fs = require('fs');
 const util = require('util');
+const stream = require('stream');
+
+/**
+ * NPM External Modules
+ */
+const Promise  = require('bluebird');
 
 //================ Validation checks ===================
 
-util.GeneratorFunction   = Reflect.getPrototypeOf(function*(){}).constructor;
+util.GeneratorFunction   = Object.getPrototypeOf(function*(){}).constructor;
 util.isFunction          = func    => typeof(func) === "function";
 util.isGeneratorFunction = genFunc => util.isFunction(genFunc) && genFunc instanceof(util.GeneratorFunction);
 
@@ -36,14 +34,19 @@ util.isNull      = nil => nil === null;
 util.isValid     = val => typeof(val) !== "undefined" && val !== null && val != '';
 
 util.isObject         = obj     => typeof(obj) === "object" && obj !== null;
-util.isNotEmptyObject = obj     => util.isObject(obj) && Reflect.ownKeys(obj).length;
-util.isEmptyObject    = obj     => util.isObject(obj) && !(Reflect.ownKeys(obj).length);
+//util.isNotEmptyObject = obj     => util.isObject(obj) && Reflect.ownKeys(obj).length;
+//util.isEmptyObject    = obj     => util.isObject(obj) && !(Reflect.ownKeys(obj).length);
 util.isBuffer         = Buffer.isBuffer;
 util.isBufferLike     = buf     => util.isObject(buf) && (buf instanceof(ArrayBuffer) || buf.buffer instanceof(ArrayBuffer));
 util.isPromise        = promise => util.isObject(promise) && (promise instanceof(Promise) || util.isFunction(promise.then));
 
 util.isArray         = Array.isArray;
 util.isNotEmptyArray = arr => util.isArray(arr) && arr.length;
+
+/**
+ * NOP - Blank function
+ */
+util.nop = () => {};
 
 /**
  * Synchronous Json File Parser
@@ -60,136 +63,113 @@ util.parseJsonFileSync = filePath => {
     }
 };
 
-/**
- * Helper function for template string
- *
- * @param {Array} strTemplate
- * @param {Array} values
- * @returns {String}
- */
-util.parseTemplateString = (strTemplate, ...values) => {
-    var str = "";
-
-    strTemplate.forEach((piece, index) => {
-        str += piece + (values[index] || "");
-    });
-
-    return str;
-};
+///**
+// * Helper function for template string
+// *
+// * @param {Array} strTemplate
+// * @param {Array} values
+// * @returns {String}
+// */
+//util.parseTemplateString = (strTemplate, ...values) => {
+//    var str = "";
+//
+//    strTemplate.forEach((piece, index) => {
+//        str += piece + (values[index] || "");
+//    });
+//
+//    return str;
+//};
 
 /**
  * Transform Readable stream into a Promise
  *
- * @param stream  {stream.Readable}
+ * @param readableStream  {stream.Readable}
  * @param [timeout] {Number}
- * @param [rejectOnError] {Boolean}
  * @returns {Promise}
  */
-util.readableStreamToPromise = (stream, timeout, rejectOnError) => {
-    /**
-     * Data sanitization
-     * timeout       = util.isInteger(timeout)? timeout : util.isInteger(rejectOnError)? rejectOnError : 0;
-     * rejectOnError = util.isBoolean(rejectOnError)? rejectOnError : false;
-     */
-
-    let data;
-    let error;
-    let dataSize = 0;
-    let dataType = 0;
-    let resolve  = util.nop;
-    let reject   = util.nop;
-    let promise  = new Promise((yes, no) => {resolve = yes; reject = no;});
-
-    if(stream._readableState.ended){
-        reject({error: new Error('Stream already ended')});
-        return promise;
+util.readableStreamToPromise = (readableStream, timeout) => {
+    if(!(readableStream.readable || readableStream instanceof(stream.Readable))){
+        return Promise.reject(new Error('Not a Readable Stream'));
     }
 
-    let dataListener = chunk => {
-        if(data){
-            let type = 0;
+    if(readableStream._readableState.endEmitted){
+        return Promise.reject(new Error('Stream already ended'));
+    }
 
-            if(util.isBuffer(chunk)){
-                dataSize += chunk.length;
-                type = 1;
+    let dataListener;
+    let endListener;
+    let errorListener;
+    let clearListeners = () => {
+        readableStream.removeListener('data', dataListener);
+        readableStream.removeListener('end', endListener);
+        readableStream.removeListener('error', errorListener);
+    };
 
-            }else if(util.isString(chunk)){
-                type = 2;
-            }
+    let promise = new Promise((resolve, reject) => {
+        let data;
+        let error;
+        let dataSize = 0;
+        let dataType = -1;
 
-            if(util.isArray(data)){
-                data.push(chunk);
+        dataListener = chunk => {
+            if(data){
+                let type = 0;
+
+                if(util.isBuffer(chunk)){
+                    dataSize += chunk.length;
+                    type = 1;
+
+                }else if(util.isString(chunk)){
+                    type = 2;
+                }
+
+                if(util.isArray(data)){
+                    data.push(chunk);
+
+                }else{
+                    data = [data, chunk];
+                }
+
+                dataType = (dataType < 0 || type === dataType)? type : 0;
 
             }else{
-                data = [data, chunk];
+                data = chunk;
+
+                if(util.isBuffer(chunk)){ //in case we receive more buffer chunks
+                    dataSize += chunk.length;
+                }
             }
+        };
 
-            dataType = (!dataType || type === dataType)? type : 0;
-
-        }else{
-            data = chunk;
-        }
-    };
-
-    let endListener = () => {
-        clearListeners();
-        /**@check Should we make an option to parse or not stream data*/
-        switch (dataType){
-            case 1:
-                data = Buffer.concat(data, dataSize);
-                break;
-            case 2:
-                data = data.join();
-                break;
-        }
-
-        return error? reject({error: error, data: data}) : resolve(data);
-    };
-
-    let errorListener = err => {
-        if(rejectOnError){
-            return reject(err);
-        }
-
-        //Only last error is recorded
-        error = err;
-    };
-
-    let clearListeners = () => {
-        stream.removeListener('data', dataListener);
-        stream.removeListener('end', endListener);
-        stream.removeListener('error', errorListener);
-    };
-
-    stream.on('data', dataListener);
-    stream.on('error', errorListener);
-    stream.once('end', endListener); //Protect against repeated call
-
-    if(timeout || rejectOnError){
-        //If timeout is 0 we wait till stream end
-        promise = (timeout? promise.timeout(timeout, "Stream Timeout") : promise).catch(error => {
+        endListener = () => {
             clearListeners();
-            /**@check Should we make an option to parse or not stream result*/
+
             switch (dataType){
-                case 1:
+                case 1: //Case Buffer
                     data = Buffer.concat(data, dataSize);
                     break;
-                case 2:
+
+                case 2: //Case String
                     data = data.join();
                     break;
             }
 
-            //Internal error, we try to continue with what data we got
-            return Promise.reject({error: error, data: data});
-        });
-    }
+            resolve(data);
+        };
 
-    return promise;
+        errorListener = err => reject(err);
+
+        readableStream.on('data', dataListener);
+        readableStream.once('error', errorListener);
+        readableStream.once('end', endListener);
+    });
+
+    return (util.isInteger(timeout)? promise.timeout(timeout) : promise).catch(err => {
+        clearListeners();
+        readableStream.resume();
+
+        throw err;
+    });
 };
-
-/**
- * NOP - Blank function
- */
-util.nop = () => {};
 
 module.exports = util;

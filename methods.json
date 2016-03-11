@@ -141,7 +141,7 @@
   "answerInlineQuery": {
     "required": {
       "inline_query_id": ["String"],
-      "results": ["Array", "InlineQueryResult"]
+      "results": ["Array"]
     },
     "optional": {
       "cache_time": ["Integer"],
