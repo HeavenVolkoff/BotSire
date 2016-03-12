@@ -559,7 +559,7 @@ class BotSire extends EventEmitter{
         this.log(`Request for method ${methodName}`);
 
         return new Promise((resolve, reject, onCancel) => {
-            let reqOpts = {agent: this.agent};
+            let reqOpts = {agent: this.agent, method: 'POST'};
             let url     = this._methodUrl(methodName);
             let clear;
             let req;
@@ -571,7 +571,7 @@ class BotSire extends EventEmitter{
                 let formData    = new FormData(config.formData);
                 let endCalled   = false;
                 reqOpts.headers = formData.getHeaders();
-                req             = request.post(url, reqOpts);
+                req             = request(url, reqOpts);
 
                 let drainListener = () => {
                     if(endCalled){
@@ -639,7 +639,7 @@ class BotSire extends EventEmitter{
                     'Content-Length': Buffer.byteLength(methodJsonParams)
                 };
 
-                req = request.post(url, reqOpts);
+                req = request(url, reqOpts);
 
                 clear = () => req.abort();
 
