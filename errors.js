@@ -64,3 +64,11 @@ exports.CommandError = class CommandError extends Error{
         this.code  = code;
     }
 };
+
+exports.InlineArgsError = class InlineArgsError extends Error{
+    constructor(msg){
+        super(`${CommandError.name}: Invalid Inline argument, because ${msg}`);
+        this.errno = 'EINARG';
+        this.msg   = msg;
+    }
+};

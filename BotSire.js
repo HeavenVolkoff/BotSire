@@ -102,20 +102,25 @@ const populateOptions = (opts) => {
     let options = {
         requestTimeout:  2000,
         poolingInterval: 120, //2min
-        poolingLimit:    100
+        poolingLimit:    100,
+        polling:         false,
+        inlineArgs:      null
     };
 
     if(util.isString(opts)){
         options.token = opts;
 
     }else if(util.isObject(opts)){
+        options.polling = Boolean(opts.polling);
+
         options.token           = util.isString(opts.token)           ? opts.token           : '';
         options.requestTimeout  = util.isInteger(opts.requestTimeout) ? opts.requestTimeout  : options.requestTimeout;
         options.poolingInterval = util.isInteger(opts.poolingInterval)? opts.poolingInterval : options.poolingInterval;
         options.poolingLimit    = util.isInteger(opts.poolingLimit)   ? opts.poolingLimit    : options.poolingLimit;
+        options.inlineArgs      = util.isObject(opts.inlineArgs)      ? opts.inlineArgs      : options.inlineArgs;
 
         /*Command Options*/
-        options.command = opts.command;
+        options.commands = opts.commands;
 
         /*FormData Options*/
         options.formData = opts.formData;
@@ -200,16 +205,16 @@ class BotSire extends EventEmitter{
         this._polling = null;
 
         //Public Properties
-        this.command = new Command(this.config.command);
-        this.config.command = null; //we don't need to save this after init Command
+        this.command = new Command(this.config.commands);
+        this.config.commands = null; //we don't need to save this after init Command
 
         //Logger Set-up
         this.log = debug('BotSire:log');
         this.err = debug('BotSire:error');
         let messageListener = msg => this.log('New message: ' + util.inspect(msg, {colors: true}));
-        this.on('error', err => this.err(err.message + ', Stack Trace: ' + err.stack)); //Log Errors
+        this.on('error', err => this.err(err.stack)); //Log Errors
         this.on('message', messageListener);
-        this.on('inline_query', messageListener);
+        this.on('inline_query', (err, msg) => messageListener(msg));
         this.on('chosen_inline_result', messageListener);
 
         //Pooling Abort
@@ -236,6 +241,11 @@ class BotSire extends EventEmitter{
             this.username = result.username;
 
             this.log(`Hello owner, I am Bot ${this.id}, but you can call me ${this.name}, my username on Telegram is @${this.username}. Let's get to work...`);
+
+            if(this.config.polling){
+                this.polling();
+            }
+
             this.emit('ready');
         });
     }
@@ -305,6 +315,83 @@ class BotSire extends EventEmitter{
     }
 
     /**
+     * Parse inline extra arguments
+     *
+     * @param query {String}
+     * @returns {null|{query}}
+     * @private
+     */
+    _inlineQueryArguments(query){
+        if(!this.config.inlineArgs || !query.length){
+            return {};
+        }
+
+        let args = {};
+        let queryArr = query.split(/\s+/);
+
+        for(let index = 0; index < queryArr.length; index++){
+            let arg = queryArr[index];
+
+            if(arg[0] === '/'){
+                if(this.config.inlineArgs.hasOwnProperty(arg)){
+                    queryArr[index] = '';
+
+                    if(this.config.inlineArgs[arg]){ //need to be a Boolean, determine if arg is a flag or if it has parameters
+                        if(++index === queryArr.length){
+                            throw new errors.InlineArgsError("Argument requires parameters");
+
+                        }else if(queryArr[index][0] === '"'){
+                            if(queryArr[index][queryArr[index].length - 1] === '"') {
+                                args[arg] = queryArr[index].slice(1, queryArr[index].length - 1);
+                                queryArr[index] = '';
+
+                            }else{
+                                args[arg] = queryArr[index].slice(1) + ' ';
+                                queryArr[index] = '';
+
+                                if(++index === queryArr.length){
+                                    throw new errors.InlineArgsError("Unmatched closing \"");
+                                }
+
+                                while(queryArr[index][queryArr[index].length - 1] !== '"'){
+                                    if(queryArr[index][0] === '/'){
+                                        throw new errors.InlineArgsError("Unmatched closing \"");
+                                    }
+
+                                    args[arg] += queryArr[index] + ' ';
+                                    queryArr[index] = '';
+
+                                    if(++index === queryArr.length){
+                                        throw new errors.InlineArgsError("Unmatched closing \"");
+                                    }
+                                }
+
+                                args[arg] += queryArr[index].slice(0, queryArr[index].length - 1);
+                                queryArr[index] = '';
+                            }
+
+                        }else if(queryArr[index][0] !== '/'){
+                            args[arg] = queryArr[index];
+                            queryArr[index] = '';
+
+                        }else{
+                            throw new errors.InlineArgsError("Argument requires parameters");
+                        }
+                    }else{
+                        args[arg] = true;
+                    }
+
+                }else{
+                    throw new errors.InlineArgsError("Unknown argument");
+                }
+            }
+        }
+
+        args.query = queryArr.filter(Boolean).join(' ');
+        return args;
+    }
+
+    /**
      * Parse Update Array
      *
      * @param updates {Array}
@@ -340,16 +427,24 @@ class BotSire extends EventEmitter{
      */
     _parseUpdate(update){
         if(util.isObject(update)){
-            if(update.message){
+            if(util.isObject(update.message)){
                 this.emit('message', update.message);
                 this._parseMessage(update.message);
                 return;
 
-            }else if(update.inline_query){
-                this.emit('inline_query', update.inline_query);
+            }else if(util.isObject(update.inline_query)){
+
+                try{
+                    this.emit('inline_query', null, update.inline_query, this._inlineQueryArguments(update.inline_query.query));
+
+                }catch (err){
+                    this.emit('error', err);
+                    this.emit('inline_query', err, update.inline_query);
+                }
+
                 return;
 
-            }else if(update.chosen_inline_result){
+            }else if(util.isObject(update.chosen_inline_result)){
                 this.emit('chosen_inline_result', update.chosen_inline_result);
                 return;
             }
@@ -371,7 +466,7 @@ class BotSire extends EventEmitter{
         /**@todo Message custom type creation*/
         if(message.text){
             if(message.text[0] === '/'){ //we got a command
-                return this.command.emit(message.text, message).catch(err => this.emit('error', err));
+                return this.command.emit(message.text, message, this).catch(err => this.emit('error', err));
             }
 
             this.emit('text', message);
@@ -529,7 +624,7 @@ class BotSire extends EventEmitter{
             throw new errors.TelegramError(json.description, json.error_code);
 
         }).catch(err => {
-            this.emit('error', new errors.MethodError(err));
+            this.emit('error', new errors.MethodError(methodName, err));
             throw err;
         });
     }

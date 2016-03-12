@@ -147,7 +147,7 @@ class Command extends Map{
      * @param command {String} - Command event name plus arguments to-be parsed
      * @param msg     {Object}
      */
-    emit(command, msg){
+    emit(command, msg, that){
         return new Promise((resolve, reject) => {
             let commandModel;
             let commandName;
@@ -210,7 +210,7 @@ class Command extends Map{
                     args.push(msg);
 
                     try{
-                        resolve(commandModel.callback.apply(null, args));
+                        resolve(commandModel.callback.apply(that, args));
 
                     }catch(error){
                         reject(error);
@@ -219,7 +219,7 @@ class Command extends Map{
 
             }else{
                 try{
-                    resolve(commandModel.callback.call(null, msg));
+                    resolve(commandModel.callback.call(that, msg));
 
                 }catch(error){
                     reject(error);
