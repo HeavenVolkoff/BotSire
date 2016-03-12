@@ -5,4 +5,6 @@ __DOCUMENTATION UNDER CONSTRUCTION__
 
 **Not production ready, still need some tweaks**
 
-*For now to run use: node --harmony_destructuring <file>*
+For now to run use: *node --harmony_destructuring <file>*
+
+To Install: *npm install --save botsire*
