@@ -45,13 +45,14 @@
  * Node Internal Modules
  */
 const EventEmitter = require('events');
-const https        = require('https');
+const http         = require('http');
 const url          = require('url');
 
 /**
  * NPM External Modules
  */
 const Promise = require('bluebird');
+const request = require('hyperquest');
 const debug   = require('debug');
 
 /**
@@ -100,11 +101,11 @@ const populateOptions = (opts) => {
      * @type {Object}
      */
     let options = {
-        requestTimeout:  2000,
-        poolingInterval: 120, //2min
-        poolingLimit:    100,
-        polling:         false,
-        inlineArgs:      null
+        requestTimeout:  120 * 1000, //2 min
+        poolingInterval: 60,         //1 min
+        poolingLimit:    100,        //Limit of updates received from Telegram
+        polling:         false,      //Enable polling after start event
+        inlineCommands:  null        //Parse commands at inline queries
     };
 
     if(util.isString(opts)){
@@ -117,7 +118,7 @@ const populateOptions = (opts) => {
         options.requestTimeout  = util.isInteger(opts.requestTimeout) ? opts.requestTimeout  : options.requestTimeout;
         options.poolingInterval = util.isInteger(opts.poolingInterval)? opts.poolingInterval : options.poolingInterval;
         options.poolingLimit    = util.isInteger(opts.poolingLimit)   ? opts.poolingLimit    : options.poolingLimit;
-        options.inlineArgs      = util.isObject(opts.inlineArgs)      ? opts.inlineArgs      : options.inlineArgs;
+        options.inlineCommands  = util.isObject(opts.inlineCommands)  ? opts.inlineCommands  : options.inlineCommands;
 
         /*Command Options*/
         options.commands = opts.commands;
@@ -185,9 +186,13 @@ const generateMethodFunctions = () => {
 };
 
 /**
- * Create your Telegram bot with ease
+ * Create your Telegram bot with ease.
  */
 class BotSire extends EventEmitter{
+    /**
+     * @param opts
+     * @emits BotSire#ready
+     */
     constructor(opts) {
         super();
 
@@ -206,6 +211,7 @@ class BotSire extends EventEmitter{
 
         //Public Properties
         this.command = new Command(this.config.commands);
+        this.agent   = new http.Agent({keepAlive: true});
         this.config.commands = null; //we don't need to save this after init Command
 
         //Logger Set-up
@@ -250,6 +256,10 @@ class BotSire extends EventEmitter{
         });
     }
 
+    /**
+     * Starts continuous poll for Telegram updates
+     * @returns {boolean}
+     */
     polling(){
         if(this.webHook){/**@todo WebHook logic*/
             this.log('WebHook is set, please disable webHook before using polling');
@@ -266,12 +276,16 @@ class BotSire extends EventEmitter{
 
         }else if(!this._polling.abort){
             this.log('Pooling already running');
-            return;
+            return false;
 
         }else{
             this._polling.abort = false;
         }
 
+        /**
+         * Long Poll loop
+         * @emits BotSire#error
+         */
         let pollingLoop = () => {
             if(this._polling.abort){
                 return;
@@ -290,7 +304,8 @@ class BotSire extends EventEmitter{
             }).catch(err => {
                 //Was intentionally cancelled not an error
                 if(!(err instanceof Promise.CancellationError)){
-                    this.emit('error', new errors.PoolingError(err));
+                    this.emit('error', new errors.PollingError(err));
+
                     /**
                      * @todo| Check errors, beware that webHook can be set, we should verify this, and set the
                      * @todo| this.webHook variable if so
@@ -319,10 +334,11 @@ class BotSire extends EventEmitter{
      *
      * @param query {String}
      * @returns {null|{query}}
+     * @throws {errors.InlineArgsError}
      * @private
      */
     _inlineQueryArguments(query){
-        if(!this.config.inlineArgs || !query.length){
+        if(!this.config.inlineCommands || !query.length){
             return {};
         }
 
@@ -333,10 +349,10 @@ class BotSire extends EventEmitter{
             let arg = queryArr[index];
 
             if(arg[0] === '/'){
-                if(this.config.inlineArgs.hasOwnProperty(arg)){
+                if(this.config.inlineCommands.hasOwnProperty(arg)){
                     queryArr[index] = '';
 
-                    if(this.config.inlineArgs[arg]){ //need to be a Boolean, determine if arg is a flag or if it has parameters
+                    if(this.config.inlineCommands[arg]){ //need to be a Boolean, determine if arg is a flag or if it has parameters
                         if(++index === queryArr.length){
                             throw new errors.InlineArgsError("Argument requires parameters");
 
@@ -395,6 +411,7 @@ class BotSire extends EventEmitter{
      * Parse Update Array
      *
      * @param updates {Array}
+     * @emits BotSire#error
      * @private
      */
     _parseUpdates(updates){
@@ -424,6 +441,10 @@ class BotSire extends EventEmitter{
      *
      * @param update {{update_id, message, inline_query, chosen_inline_result}}
      * @private
+     * @emits BotSire#message
+     * @emits BotSire#inline_query
+     * @emits BotSire#chosen_inline_result
+     * @emits BotSire#error
      */
     _parseUpdate(update){
         if(util.isObject(update)){
@@ -455,11 +476,31 @@ class BotSire extends EventEmitter{
 
     /**
      * Parse Message into its different types
+     *
      * @param message {{text}}
      * @param   message.message_id {Number}
      * @param   [message.from]     {{id, first_name, last_name, username}}
      * @param   message.data       {Number}
      * @param   message.chat       {id, type}
+     *
+     * @emits BotSire#text
+     * @emits BotSire#audio
+     * @emits BotSire#document
+     * @emits BotSire#photo
+     * @emits BotSire#sticker
+     * @emits BotSire#video
+     * @emits BotSire#voice
+     * @emits BotSire#contact
+     * @emits BotSire#location
+     * @emits BotSire#new_chat_participant
+     * @emits BotSire#left_chat_participant
+     * @emits BotSire#new_chat_title
+     * @emits BotSire#new_chat_photo
+     * @emits BotSire#delete_chat_photo
+     * @emits BotSire#group_chat_created
+     * @emits BotSire#supergroup_chat_created
+     * @emits BotSire#channel_chat_created
+     * @emits BotSire#error
      * @private
      */
     _parseMessage(message){
@@ -485,11 +526,29 @@ class BotSire extends EventEmitter{
         }
     }
 
-    _methodUrl(method) {
-        return `${telegramBotApiUrl + this.config.token}/${method}`;
+    /**
+     * Return Telegram API URL for methodName
+     *
+     * @param methodName
+     * @returns {String}
+     * @private
+     */
+    _methodUrl(methodName) {
+        return `${telegramBotApiUrl + this.config.token}/${methodName}`;
     }
 
-    _request(methodName, methodArgs, fileUpload, config) { //for now opts are internal use only
+    /**
+     * Request Method from Telegram API
+     *
+     * @param methodName {String}
+     * @param methodArgs {Object}
+     * @param fileUpload {Boolean}
+     * @param [config]   {Object} for now config are internal use only
+     * @returns {Promise.<T>}
+     * @emits BotSire#error
+     * @private
+     */
+    _request(methodName, methodArgs, fileUpload, config) {
         if(util.isObject(config)){
             config = Object.assign({}, this.config, config);
 
@@ -500,21 +559,19 @@ class BotSire extends EventEmitter{
         this.log(`Request for method ${methodName}`);
 
         return new Promise((resolve, reject, onCancel) => {
-            let request;
-            let requestOpts    = url.parse(this._methodUrl(methodName));
-            requestOpts.method = 'POST';
-            requestOpts.port   = 443;
-
+            let reqOpts = {agent: this.agent};
+            let url     = this._methodUrl(methodName);
             let clear;
+            let req;
             /**@todo get Socket Timeout to work properly*/
 
             if(fileUpload){
-                let fields          = Object.keys(methodArgs);
-                let index           = 0;
-                let formData        = new FormData(config.formData); //allow custom options
-                let endCalled       = false;
-                requestOpts.headers = formData.getHeaders();
-                request             = https.request(requestOpts);
+                let fields      = Object.keys(methodArgs);
+                let index       = 0;
+                let formData    = new FormData(config.formData);
+                let endCalled   = false;
+                reqOpts.headers = formData.getHeaders();
+                req             = request.post(url, reqOpts);
 
                 let drainListener = () => {
                     if(endCalled){
@@ -543,26 +600,23 @@ class BotSire extends EventEmitter{
                     }
                 };
 
-                let endListener = () => request.end;
+                let endListener = () => req.end();
 
                 clear = () => {
                     formData.removeListener('end', endListener);
                     formData.removeListener('drain', drainListener);
-                    formData.unpipe(request);
+                    formData.unpipe(req);
 
                     if(!endCalled){
                         endCalled = true;
                         formData.end();
                     }
 
-                    request.abort(); //cancel request event
+                    req.abort(); //cancel request event
                 };
 
-                formData.pipe(request);
-                formData.once('error', err => {
-                    clear();
-                    reject(err);
-                });
+                formData.pipe(req);
+                formData.once('error', err => {clear(); reject(err);});
                 formData.on('drain', drainListener);
                 formData.once('end', endListener);
 
@@ -580,34 +634,27 @@ class BotSire extends EventEmitter{
                     return;
                 }
 
-                requestOpts.headers = {
+                reqOpts.headers = {
                     'Content-Type': "application/json; charset=utf-8",
                     'Content-Length': Buffer.byteLength(methodJsonParams)
                 };
 
-                request = https.request(requestOpts);
+                req = request.post(url, reqOpts);
 
-                clear = () => request.abort();
+                clear = () => req.abort();
 
                 //Allow us to bind request events before pushing data
-                process.nextTick(() => request.write(methodJsonParams, 'utf8', () => request.end));
+                process.nextTick(() => req.write(methodJsonParams, 'utf8', () => req.end()));
             }
 
-            //Listen to request Events
-            request.once('error', err => {
-                clear();
-                reject(err);
-            });
-
-            request.once('response', res => {
+            req.once('response', res => {
                 res.setEncoding('utf8'); //get as string
                 if(res.statusCode < 200 || res.statusCode >= 300){
                     this.emit('error', new errors.RequestError(res.statusMessage, res.statusCode));
                 }
-
-                resolve(util.readableStreamToPromise(res/*, config.requestTimeout*/));/**@todo timeout*/
             });
 
+            resolve(util.readableStreamToPromise(req).catch(err => {clear(); throw err;}));
             onCancel(clear);
 
         }).then(json => {

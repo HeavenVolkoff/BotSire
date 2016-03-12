@@ -146,6 +146,7 @@ class Command extends Map{
      * Emit Command Event
      * @param command {String} - Command event name plus arguments to-be parsed
      * @param msg     {Object}
+     * @param that    {Object}
      */
     emit(command, msg, that){
         return new Promise((resolve, reject) => {

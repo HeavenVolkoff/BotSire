@@ -164,7 +164,7 @@ class FormData extends stream.Transform{
                             opts.fileName = opts.fileName || val.path;
                         }
 
-                        //@todo timeout again
+                        //@todo timeout again, this can be WAY BETTER handled
                         util.readableStreamToPromise(val/*, opts.length? ((opts.length / this.speedLimit) * 1000) : this.responseTimeout*/)
                             .then(val => this._transform({field: field, val: val, opts: opts}, encoding, done))
                             .catch(done);

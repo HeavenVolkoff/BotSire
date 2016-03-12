@@ -45,9 +45,9 @@ exports.MethodError = class MethodError extends Error{
     }
 };
 
-exports.PoolingError = class PoolingError extends Error{
+exports.PollingError = class PollingError extends Error{
     constructor(err){
-        super(`${PoolingError.name}: Failed while polling for data, because ${err.message}`);
+        super(`${PollingError.name}: Failed while polling for data, because ${err.message}`);
         this.errno = 'EPOOL';
         this.err   = err;
     }
