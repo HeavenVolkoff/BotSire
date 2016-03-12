@@ -617,7 +617,7 @@ class BotSire extends EventEmitter{
                         formData.end();
                     }
 
-                    req.abort(); //cancel request event
+                    req.emit('close'); //cancel request event
                 };
 
                 formData.pipe(req);
@@ -646,7 +646,7 @@ class BotSire extends EventEmitter{
 
                 req = request(url, reqOpts);
 
-                clear = () => req.abort();
+                clear = () => req.emit('close');
 
                 //Allow us to bind request events before pushing data
                 process.nextTick(() => req.write(methodJsonParams, 'utf8', () => req.end()));
