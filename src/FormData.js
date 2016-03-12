@@ -122,21 +122,17 @@ class FormData extends stream.Transform{
                         }
 
                         let responseListener = res => this._transform({field: field, val: res, opts: opts}, encoding, done);
+                        let err = err => {
+                            val.removeListener('response', responseListener());
+                            val.destroy();
+                            done(err);
+                        };
 
-                        //@todo Cant get timeout to work properly
-                        //Check if stream don't have a timeout already set and if we have a valid streamTimeout
-                        //if(!val.timeoutCb && this.requestTimeout){
-                        //    val.setTimeout(this.requestTimeout);
-                        //}
-                        //
-                        //val.once('timeout', () => {
-                        //    /**@check necessary?*/
-                        //    val.removeListener('response', responseListener);
-                        //    this.emit('error', new Error('Client Request stream Timeout'));
-                        //    //We attempt to continue with empty value
-                        //    this._transform({field: field, opts: opts}, encoding, done);
-                        //});
-                        val.once('response', responseListener).end();
+                        //@todo timeout
+                        val.once('response', responseListener)
+                            .once('abort', () => err(new Error('Request was aborted')))
+                            .once('error', err)
+                            .end();
                         return;
 
                     }else if(val.readable || val instanceof(stream.Readable)){
@@ -164,10 +160,40 @@ class FormData extends stream.Transform{
                             opts.fileName = opts.fileName || val.path;
                         }
 
-                        //@todo timeout again, this can be WAY BETTER handled
-                        util.readableStreamToPromise(val/*, opts.length? ((opts.length / this.speedLimit) * 1000) : this.responseTimeout*/)
-                            .then(val => this._transform({field: field, val: val, opts: opts}, encoding, done))
-                            .catch(done);
+                        if(val._readableState.objectMode){
+                            util.readableStreamToPromise(val)
+                                .then(val => this._transform({field: field, val: val, opts: opts}, encoding, done))
+                                .catch(done);
+
+                        }else{
+                            let onHead = data => {
+                                opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, data, opts);
+                                this.push(opts.header);
+                                this.overheadLength += Buffer.byteLength(opts.header) + LINE_BREAK.length;
+                            };
+
+                            let onData = data => {
+                                this.length += data.length;
+                                this.push(data);
+                            };
+
+                            let onEnd = () => done(null, LINE_BREAK);
+
+                            let onError = err => {
+                                val.removeEventListener('data', onHead);
+                                val.removeEventListener('data', onData);
+                                val.removeEventListener('end', onEnd);
+
+                                try{
+                                    done(err);
+                                }catch(ignore){}
+                            };
+
+                            val.once('error', onError);
+                            val.once('data', onHead);
+                            val.on('data', onData);
+                            val.once('end', onEnd);
+                        }
 
                         return;
 
@@ -228,7 +254,7 @@ class FormData extends stream.Transform{
         /**@assert val {String|Buffer}*/
 
         //Construct header if not provided
-        opts.header = opts.header || this._constructHeader(field, val, opts);
+        opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, data, opts);
 
         this.push(opts.header);
         this.push(val);
@@ -309,23 +335,9 @@ class FormData extends stream.Transform{
         /**@check why add CRLF? does this account for custom/multiple CRLFs?*/
         this.overheadLength += Buffer.byteLength(header) + LINE_BREAK.length;
 
-        if(this.guess || !util.isInteger(length) || length < 0){
-            if(length < 0){
-                this.emit(new Error('Invalid Length'));
-            }
-
-            if(util.isString(value)){
-                length = Buffer.byteLength(value);
-
-            }else if(util.isBuffer(value)){
-                length = value.length;
-
-            }else{
-                this.emit(new Error('Invalid Length'));
-            }
-        }
-
-        this.length += length;
+        this.length += this.guess || !util.isInteger(length) || length < 0?
+            (util.isString(value)? Buffer.byteLength(value) : (util.isBuffer(value)? value.length : length))
+            : length;
     }
 
     getHeaders (userHeaders) {
