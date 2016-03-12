@@ -45,6 +45,7 @@
  * Node Internal Modules
  */
 const EventEmitter = require('events');
+const https        = require('https');
 const http         = require('http');
 const url          = require('url');
 
@@ -211,7 +212,10 @@ class BotSire extends EventEmitter{
 
         //Public Properties
         this.command = new Command(this.config.commands);
-        this.agent   = new http.Agent({keepAlive: true});
+        this.agent   = {
+            http: new http.Agent({keepAlive: true}),
+            https: new https.Agent({keepAlive: true})
+        };
         this.config.commands = null; //we don't need to save this after init Command
 
         //Logger Set-up
@@ -559,7 +563,7 @@ class BotSire extends EventEmitter{
         this.log(`Request for method ${methodName}`);
 
         return new Promise((resolve, reject, onCancel) => {
-            let reqOpts = {agent: this.agent};
+            let reqOpts = {agent: this.agent.https};
             let url     = this._methodUrl(methodName);
             let clear;
             let req;
