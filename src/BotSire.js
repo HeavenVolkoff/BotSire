@@ -66,7 +66,7 @@ const util     = require('./util.js');
  * JSON files
  */
 /**@type {Object}*/
-const methodDefinitions = require('./../methods.json');
+const methodDefinitions = require('./methods.json');
 
 /*
  * Module Constants
