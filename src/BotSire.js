@@ -220,6 +220,7 @@ class BotSire extends EventEmitter{
 
         //Logger Set-up
         this.log = debug('BotSire:log');
+        this.log.log = console.info.bind(console);
         this.err = debug('BotSire:error');
         this.err.log = console.error.bind(console);
         let messageListener = msg => this.log('New message:\n  ' + util.inspect(msg, {colors: true}));
