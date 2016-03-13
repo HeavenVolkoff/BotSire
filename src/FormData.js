@@ -254,7 +254,7 @@ class FormData extends stream.Transform{
         /**@assert val {String|Buffer}*/
 
         //Construct header if not provided
-        opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, data, opts);
+        opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, val, opts);
 
         this.push(opts.header);
         this.push(val);
