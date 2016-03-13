@@ -34,26 +34,20 @@ exports.MessageError = class MessageError extends Error{
 
 exports.MethodError = class MethodError extends Error{
     constructor(method, err){
-        super(`${MethodError.name}: Failed to process method ${method}, because ${err.message}'`);
+        super(`${MethodError.name}: Failed to process method ${method}` + (err.errno? ` Error code: ${err.errno}` : ''));
         this.errno  = 'EMETHOD';
         this.method = method;
         this.err    = err;
-    }
-
-    get stack(){
-        return `${this.err.constructor.name} Stack Trace: ${this.err.stack}`;
+        this.stack  = `${this.message} Stack Trace: ${this.err.stack}`;
     }
 };
 
 exports.PollingError = class PollingError extends Error{
     constructor(err){
-        super(`${PollingError.name}: Failed while polling for data, because ${err.message}`);
+        super(`${PollingError.name}: Failed while polling for data` + (err.errno? ` Error code: ${err.errno}` : ''));
         this.errno = 'EPOOL';
         this.err   = err;
-    }
-
-    get stack(){
-        return `${this.err.constructor.name} Stack Trace: ${this.err.stack}`;
+        this.stack = `${this.message} Stack Trace: ${this.err.stack}`;
     }
 };
 
@@ -65,10 +59,9 @@ exports.CommandError = class CommandError extends Error{
     }
 };
 
-exports.InlineArgsError = class InlineArgsError extends Error{
+exports.InlineCommandError = class InlineCommandError extends Error{
     constructor(msg){
-        super(`${CommandError.name}: Invalid Inline argument, because ${msg}`);
-        this.errno = 'EINARG';
-        this.msg   = msg;
+        super(`${InlineCommandError.name}: ${msg}`);
+        this.errno = 'EINCMD';
     }
 };

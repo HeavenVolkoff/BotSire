@@ -338,10 +338,10 @@ class BotSire extends EventEmitter{
      *
      * @param query {String}
      * @returns {null|{query}}
-     * @throws {errors.InlineArgsError}
+     * @throws {errors.InlineCommandError}
      * @private
      */
-    _inlineQueryArguments(query){
+    _inlineQueryCommands(query){
         if(!this.config.inlineCommands || !query.length){
             return {};
         }
@@ -350,59 +350,59 @@ class BotSire extends EventEmitter{
         let queryArr = query.split(/\s+/);
 
         for(let index = 0; index < queryArr.length; index++){
-            let arg = queryArr[index];
+            let command = queryArr[index];
 
-            if(arg[0] === '/'){
-                if(this.config.inlineCommands.hasOwnProperty(arg)){
+            if(command[0] === '/'){
+                if(this.config.inlineCommands.hasOwnProperty(command)){
                     queryArr[index] = '';
 
-                    if(this.config.inlineCommands[arg]){ //need to be a Boolean, determine if arg is a flag or if it has parameters
+                    if(this.config.inlineCommands[command]){ //need to be a Boolean, determine if arg is a flag or if it has parameters
                         if(++index === queryArr.length){
-                            throw new errors.InlineArgsError("Argument requires parameters");
+                            throw new errors.InlineCommandError(`Command ${command} requires parameters`);
 
                         }else if(queryArr[index][0] === '"'){
                             if(queryArr[index][queryArr[index].length - 1] === '"') {
-                                args[arg] = queryArr[index].slice(1, queryArr[index].length - 1);
+                                args[command] = queryArr[index].slice(1, queryArr[index].length - 1);
                                 queryArr[index] = '';
 
                             }else{
-                                args[arg] = queryArr[index].slice(1) + ' ';
+                                args[command] = queryArr[index].slice(1) + ' ';
                                 queryArr[index] = '';
 
                                 if(++index === queryArr.length){
-                                    throw new errors.InlineArgsError("Unmatched closing \"");
+                                    throw new errors.InlineCommandError(`Unmatched closing \" at command ${command}`);
                                 }
 
                                 while(queryArr[index][queryArr[index].length - 1] !== '"'){
                                     if(queryArr[index][0] === '/'){
-                                        throw new errors.InlineArgsError("Unmatched closing \"");
+                                        throw new errors.InlineCommandError(`Unmatched closing \" at command ${command}`);
                                     }
 
-                                    args[arg] += queryArr[index] + ' ';
+                                    args[command] += queryArr[index] + ' ';
                                     queryArr[index] = '';
 
                                     if(++index === queryArr.length){
-                                        throw new errors.InlineArgsError("Unmatched closing \"");
+                                        throw new errors.InlineCommandError(`Unmatched closing \" at command ${command}`);
                                     }
                                 }
 
-                                args[arg] += queryArr[index].slice(0, queryArr[index].length - 1);
+                                args[command] += queryArr[index].slice(0, queryArr[index].length - 1);
                                 queryArr[index] = '';
                             }
 
                         }else if(queryArr[index][0] !== '/'){
-                            args[arg] = queryArr[index];
+                            args[command] = queryArr[index];
                             queryArr[index] = '';
 
                         }else{
-                            throw new errors.InlineArgsError("Argument requires parameters");
+                            throw new errors.InlineCommandError(`Command ${command} requires parameters`);
                         }
                     }else{
-                        args[arg] = true;
+                        args[command] = true;
                     }
 
                 }else{
-                    throw new errors.InlineArgsError("Unknown argument");
+                    throw new errors.InlineCommandError(`Unknown Command ${command}`);
                 }
             }
         }
@@ -460,7 +460,7 @@ class BotSire extends EventEmitter{
             }else if(util.isObject(update.inline_query)){
 
                 try{
-                    this.emit('inline_query', null, update.inline_query, this._inlineQueryArguments(update.inline_query.query));
+                    this.emit('inline_query', null, update.inline_query, this._inlineQueryCommands(update.inline_query.query));
 
                 }catch (err){
                     this.emit('error', err);
