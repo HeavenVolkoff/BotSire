@@ -179,7 +179,7 @@ const generateMethodFunctions = () => {
                     fileUpload = true;
                 }
 
-                this.log(`Call method ${methodName} with args ${util.inspect(methodArgs, {colors: true, depth: 0})}`);
+                this.log(`Call method ${methodName} with args\n  ${util.inspect(methodArgs, {colors: true, depth: 0})}`);
                 return this._request(methodName, methodArgs, fileUpload);
             }
         })
@@ -221,7 +221,8 @@ class BotSire extends EventEmitter{
         //Logger Set-up
         this.log = debug('BotSire:log');
         this.err = debug('BotSire:error');
-        let messageListener = msg => this.log('New message: ' + util.inspect(msg, {colors: true}));
+        this.err.log = console.error.bind(console);
+        let messageListener = msg => this.log('New message:\n  ' + util.inspect(msg, {colors: true}));
         this.on('error', err => this.err(err.stack)); //Log Errors
         this.on('message', messageListener);
         this.on('inline_query', (err, msg) => messageListener(msg));
@@ -564,7 +565,6 @@ class BotSire extends EventEmitter{
 
         return new Promise((resolve, reject, onCancel) => {
             let reqOpts = {agent: this.agent.https, method: 'POST'};
-
             let url     = this._methodUrl(methodName);
             let clear;
             let req;
@@ -605,12 +605,10 @@ class BotSire extends EventEmitter{
                     }
                 };
 
-                let endListener = () => req.end();
-
                 clear = () => {
-                    formData.removeListener('end', endListener);
-                    formData.removeListener('drain', drainListener);
-                    formData.unpipe(req);
+                    formData
+                        .removeListener('drain', drainListener)
+                        .unpipe(req);
 
                     if(!endCalled){
                         endCalled = true;
@@ -620,36 +618,29 @@ class BotSire extends EventEmitter{
                     req.emit('close'); //cancel request event
                 };
 
-                formData.pipe(req);
-                formData.once('error', err => {clear(); reject(err);});
-                formData.on('drain', drainListener);
-                formData.once('end', endListener);
+                formData
+                    .pipe(req)
+                    .once('error', err => {clear(); reject(err);})
+                    .on('drain', drainListener);
 
                 //Allow us to bind request events before pushing data
                 process.nextTick(drainListener); //Start pushing data to formData
 
             }else{
                 let methodJsonParams;
+                clear = () => req.emit('close');
 
                 try{
                     methodJsonParams = JSON.stringify(methodArgs);
 
-                }catch (error){
-                    reject(error);
-                    return;
-                }
+                }catch (error){ return reject(error); }
 
                 reqOpts.headers = {
                     'Content-Type': "application/json; charset=utf-8",
                     'Content-Length': Buffer.byteLength(methodJsonParams)
                 };
 
-                req = request(url, reqOpts);
-
-                clear = () => req.emit('close');
-
-                //Allow us to bind request events before pushing data
-                process.nextTick(() => req.write(methodJsonParams, 'utf8', () => req.end()));
+                (req = request(url, reqOpts)).end(methodJsonParams, 'utf8');
             }
 
             req.once('response', res => {
@@ -683,4 +674,3 @@ class BotSire extends EventEmitter{
 }
 
 module.exports = BotSire;
-

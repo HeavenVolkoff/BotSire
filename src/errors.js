@@ -38,7 +38,7 @@ exports.MethodError = class MethodError extends Error{
         this.errno  = 'EMETHOD';
         this.method = method;
         this.err    = err;
-        this.stack  = `${this.message} Stack Trace: ${this.err.stack}`;
+        this.stack  = `${this.message}\n  Stack Trace: ${this.err.stack}`;
     }
 };
 
@@ -47,7 +47,7 @@ exports.PollingError = class PollingError extends Error{
         super(`${PollingError.name}: Failed while polling for data` + (err.errno? ` Error code: ${err.errno}` : ''));
         this.errno = 'EPOOL';
         this.err   = err;
-        this.stack = `${this.message} Stack Trace: ${this.err.stack}`;
+        this.stack = `${this.message}\n  Stack Trace: ${this.err.stack}`;
     }
 };
 
