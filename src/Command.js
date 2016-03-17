@@ -33,10 +33,10 @@ class Command extends Map{
     constructor(opts){
         super();
 
-        this.log = debug('BotSire:command');
-
+        this.log         = debug('BotSire:command');
+        this.log.log     = console.info.bind(console);
         this.annotations = null;
-        this.onError = util.nop;
+        this.onError     = util.nop;
 
         if(util.isObject(opts)){
             let commands;
@@ -156,12 +156,12 @@ class Command extends Map{
 
             if(!(commandName = command.match(Regexps.COMMAND_PARSE_NAME))){ //safe measure case RegExp returns null
                 this.onError('INVALID_COMMAND', command, msg);
-                return reject(errors.CommandError(`Invalid Command: ${command}`, 'INVALID_COMMAND'));
+                return reject(new errors.CommandError(`Invalid Command: ${command}`, 'INVALID_COMMAND'));
             }
 
             if(!(commandModel = this.get(commandName = commandName[0]))){
                 this.onError('UNKNOWN_COMMAND', command, msg, commandName);
-                return reject(errors.CommandError('Unknown Command', 'UNKNOWN_COMMAND'));
+                return reject(new errors.CommandError('Unknown Command', 'UNKNOWN_COMMAND'));
             }
 
             commandArgs = command.split(Regexps.COMMAND_PARSE_ARGUMENTS).filter(Boolean); //Remove empty args
@@ -188,7 +188,7 @@ class Command extends Map{
             if(commandModel.args){
                 if(commandArgs.length < commandModel.args.required){ //Check if we receive at least the required arguments
                     this.onError('MISSING_ARGUMENT', command, msg, commandName, commandModel);
-                    return reject(errors.CommandError(`Command ${commandName} received ${commandArgs.length} of the ${commandModel.args.required} required arguments`, 'MISSING_ARGUMENT'));
+                    return reject(new errors.CommandError(`Command ${commandName} received ${commandArgs.length} of the ${commandModel.args.required} required arguments`, 'MISSING_ARGUMENT'));
 
                 }else{
                     let offset = commandModel.args.required;

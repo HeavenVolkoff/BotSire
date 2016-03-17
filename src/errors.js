@@ -8,9 +8,18 @@ exports.UpdateError = class UpdateError extends Error{
     }
 };
 
+exports.JSONParseError = class JSONParseError extends Error{
+    constructor(syntaxError, json){
+        super(`${JSONParseError.name}: Error while parsing JSON, reason: ${syntaxError.message}\n  Supposed JSON String: ${json}`);
+        this.errno = 'EJSONP';
+        this.stack = `${this.message}\n  Stack Trace: ${this.err.stack}`;
+        this.json  = json;
+    }
+};
+
 exports.RequestError = class RequestError extends Error{
     constructor(msg, statusCode){
-        super(`${RequestError.name}: Response was ${msg}, with status code ${statusCode}`);
+        super(`${RequestError.name}: Status Message: "${msg}", with Status Code: "${statusCode}"`);
         this.errno      = 'ERQST';
         this.statusCode = statusCode;
     }
@@ -53,7 +62,7 @@ exports.PollingError = class PollingError extends Error{
 
 exports.CommandError = class CommandError extends Error{
     constructor(msg, code){
-        super(`${CommandError.name}: Failed to process command, because ${msg}`);
+        super(`${CommandError.name}: Failed to process command, reason ${msg}`);
         this.errno = 'ECMD';
         this.code  = code;
     }

@@ -31,7 +31,7 @@ util.isBoolean = bool => typeof(bool) === "boolean";
 util.isUndefined = und => typeof(und) === "undefined";
 util.isAssigned  = val => typeof(val) !== "undefined";
 util.isNull      = nil => nil === null;
-util.isValid     = val => typeof(val) !== "undefined" && val !== null && val != '';
+util.isValid     = val => typeof(val) !== "undefined" && val !== null && val !== '';
 
 util.isObject         = obj     => typeof(obj) === "object" && obj !== null;
 //util.isNotEmptyObject = obj     => util.isObject(obj) && Reflect.ownKeys(obj).length;
@@ -58,7 +58,7 @@ util.parseJsonFileSync = filePath => {
     try {
         return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
-    } catch (err) {
+    } catch (ignore) {
         return null;
     }
 };
@@ -83,7 +83,7 @@ util.parseJsonFileSync = filePath => {
 /**
  * Transform Readable stream into a Promise
  *
- * @param readableStream  {stream.Readable}
+ * @param readableStream {stream.Readable}
  * @param [timeout] {Number}
  * @returns {Promise}
  */

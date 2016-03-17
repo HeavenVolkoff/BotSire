@@ -32,7 +32,7 @@
 //         :$$$$$i;;iiiiidYYYYYYYYYY$$$$$$YYYYYYYiiYYYY.
 //          `$$$$$$$YYYYYYYYYYYYY$$$$$$YYYYYYYYiiiYYYYYY
 //  So ES6  .i!$$$$$$YYYYYYYYY$$$$$$YYY$$YYiiiiiiYYYYYYY
-//         :YYiii$$$$$$$YYYYYYY$$$$YY$$$$YYiiiiiYYYYYYi' (author: cmang)
+//         :YYiii$$$$$$$YYYYYYY$$$$YY$$$$YYiiiiiYYYYYYi' (modified, author: cmang)
 'use strict';
 
 /**
@@ -211,22 +211,22 @@ class BotSire extends EventEmitter{
         this._polling = null;
 
         //Public Properties
-        this.command = new Command(this.config.commands);
-        this.agent   = {
-            http: new http.Agent({keepAlive: true}),
+        this.command         = new Command(this.config.commands);
+        this.config.commands = null; //we don't need to save this after init Command
+        this.agent           = {
+            http:  new http.Agent({keepAlive: true}),
             https: new https.Agent({keepAlive: true})
         };
-        this.config.commands = null; //we don't need to save this after init Command
 
         //Logger Set-up
-        this.log = debug('BotSire:log');
-        this.log.log = console.info.bind(console);
-        this.err = debug('BotSire:error');
-        this.err.log = console.error.bind(console);
+        this.log            = debug('BotSire:log');
+        this.log.log        = console.info.bind(console);
+        this.err            = debug('BotSire:error');
+        this.err.log        = console.error.bind(console);
         let messageListener = msg => this.log('New message:\n  ' + util.inspect(msg, {colors: true}));
-        this.on('error', err => this.err(err.stack)); //Log Errors
-        this.on('message', messageListener);
-        this.on('inline_query', (err, msg) => messageListener(msg));
+        this.on('error',                err => this.err(err.stack));
+        this.on('message',              messageListener);
+        this.on('inline_query',         (err, msg) => messageListener(msg));
         this.on('chosen_inline_result', messageListener);
 
         //Pooling Abort
@@ -234,7 +234,7 @@ class BotSire extends EventEmitter{
             if(this._polling && !this._polling.abort){
                 this._polling.promise.cancel();
                 this._polling.promise = null;
-                this._polling.abort = true;
+                this._polling.abort   = true;
                 this._polling.timeout = 1;
 
                 this.log('Polling was cancelled');
@@ -274,10 +274,10 @@ class BotSire extends EventEmitter{
 
         if(!this._polling){
             this._polling = {
-                promise: null,
-                abort: false,
+                abort:   false,
+                offset:  0,
                 timeout: 1,
-                offset: 0
+                promise: null
             }
 
         }else if(!this._polling.abort){
@@ -299,17 +299,21 @@ class BotSire extends EventEmitter{
 
             (this._polling.promise = this._request(
                 'getUpdates',
-                {offset: this._polling.offset, limit: this.config.poolingLimit, timeout: this.config.poolingInterval},
+                {
+                    limit:   this.config.poolingLimit,
+                    offset:  this._polling.offset,
+                    timeout: this.config.poolingInterval
+                },
                 false,
                 {requestTimeout: this.config.poolingInterval * 2000}
 
             )).then(updates => {
                 this._polling.timeout = 1;
-                this._parseUpdates(updates)
+                this._parseUpdates(updates);
 
             }).catch(err => {
                 //Was intentionally cancelled not an error
-                if(!(err instanceof Promise.CancellationError)){
+                if(!(err instanceof(Promise.CancellationError))){
                     this.emit('error', new errors.PollingError(err));
 
                     /**
@@ -364,11 +368,11 @@ class BotSire extends EventEmitter{
 
                         }else if(queryArr[index][0] === '"'){
                             if(queryArr[index][queryArr[index].length - 1] === '"') {
-                                args[command] = queryArr[index].slice(1, queryArr[index].length - 1);
+                                args[command]   = queryArr[index].slice(1, queryArr[index].length - 1);
                                 queryArr[index] = '';
 
                             }else{
-                                args[command] = queryArr[index].slice(1) + ' ';
+                                args[command]   = queryArr[index].slice(1) + ' ';
                                 queryArr[index] = '';
 
                                 if(++index === queryArr.length){
@@ -380,7 +384,7 @@ class BotSire extends EventEmitter{
                                         throw new errors.InlineCommandError(`Unmatched closing \" at command ${command}`);
                                     }
 
-                                    args[command] += queryArr[index] + ' ';
+                                    args[command]  += queryArr[index] + ' ';
                                     queryArr[index] = '';
 
                                     if(++index === queryArr.length){
@@ -388,12 +392,12 @@ class BotSire extends EventEmitter{
                                     }
                                 }
 
-                                args[command] += queryArr[index].slice(0, queryArr[index].length - 1);
+                                args[command]  += queryArr[index].slice(0, queryArr[index].length - 1);
                                 queryArr[index] = '';
                             }
 
                         }else if(queryArr[index][0] !== '/'){
-                            args[command] = queryArr[index];
+                            args[command]   = queryArr[index];
                             queryArr[index] = '';
 
                         }else{
@@ -466,7 +470,7 @@ class BotSire extends EventEmitter{
 
                 }catch (err){
                     this.emit('error', err);
-                    this.emit('inline_query', err, update.inline_query);
+                    this.emit('inline_query', err, update.inline_query); /**@check error should also be here?*/
                 }
 
                 return;
@@ -637,7 +641,7 @@ class BotSire extends EventEmitter{
                 }catch (error){ return reject(error); }
 
                 reqOpts.headers = {
-                    'Content-Type': "application/json; charset=utf-8",
+                    'Content-Type':   "application/json; charset=utf-8",
                     'Content-Length': Buffer.byteLength(methodJsonParams)
                 };
 
@@ -657,8 +661,13 @@ class BotSire extends EventEmitter{
         }).then(json => {
             this.log(`Received result for ${methodName}`);
 
-            /**@type {{ok, [result], [description], [error_code]}}*/
-            json = JSON.parse(json);
+            try{
+                /**@type {{ok, [result], [description], [error_code]}}*/
+                json = JSON.parse(json);
+
+            }catch (error){
+                throw new errors.JSONParseError(error, json);
+            }
 
             if(json.ok){
                 this.log(`Call to ${methodName} successful` + (json.description? ` description: ${json.description}` : ''));

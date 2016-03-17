@@ -42,7 +42,10 @@ const generateBoundary = () => {
     return boundary;
 };
 
-/**@todo Make Custom error types*/
+/**
+ * multipart/form-data Stream
+ * @extends {stream.Transform}
+ */
 class FormData extends stream.Transform{
     /**
      * Constructor
@@ -94,7 +97,7 @@ class FormData extends stream.Transform{
 
     /**
      * @param field     {String}
-     * @param val       {String|Number|Object}
+     * @param val       {String|Number|Object|Array|Buffer|ArrayBuffer|Promise|stream.Readable|http.ClientRequest|http.IncomingMessage}
      * @param [opts]    {Object}
      * @param   [opts.header] {Object}
      * @param encoding  {String}
@@ -115,7 +118,7 @@ class FormData extends stream.Transform{
         if(util.isObject(val)){
             if(!util.isBuffer(val)){
                 if(val instanceof(stream.Stream)){
-                    if(val instanceof http.ClientRequest){
+                    if(val instanceof(http.ClientRequest)){
                         if(val.finished) {
                             done(new Error('Client Request stream already finished'));
                             return;
