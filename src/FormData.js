@@ -111,9 +111,16 @@ class FormData extends stream.Transform{
             return;
         }
 
-        opts             = util.isObject(opts)            ? opts             : {};
-        opts.contentType = util.isString(opts.contentType)? opts.contentType : '';
-        opts.fileName    = util.isString(opts.fileName)   ? opts.fileName    : '';
+        if(util.isObject(opts)){
+            opts.contentType = util.isString(opts.contentType)? opts.contentType : '';
+            opts.fileName    = util.isString(opts.fileName)   ? opts.fileName    : '';
+
+        }else{
+            opts = {
+                contentType: '',
+                fileName: ''
+            }
+        }
 
         if(util.isObject(val)){
             if(!util.isBuffer(val)){
@@ -170,7 +177,7 @@ class FormData extends stream.Transform{
 
                         }else{
                             let onHead = data => {
-                                opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, data, opts);
+                                opts.header = !this.guess && util.isValidString(opts.header)? opts.header : this._constructHeader(field, data, opts);
                                 this.push(opts.header);
                                 this.overheadLength += Buffer.byteLength(opts.header) + LINE_BREAK.length;
                             };
@@ -257,7 +264,7 @@ class FormData extends stream.Transform{
         /**@assert val {String|Buffer}*/
 
         //Construct header if not provided
-        opts.header = !this.guess && opts.header? opts.header : this._constructHeader(field, val, opts);
+        opts.header = !this.guess && util.isValidString(opts.header)? opts.header : this._constructHeader(field, val, opts);
 
         this.push(opts.header);
         this.push(val);
@@ -292,8 +299,6 @@ class FormData extends stream.Transform{
      * @private
      */
     _constructHeader(field, value, {fileName, contentType}) {
-        let getNameFromMime = mime => mime.split('/')[0];
-
         fileName = path.parse(fileName);
         let ext  = fileName.ext;
         fileName = fileName.name;
@@ -325,13 +330,17 @@ class FormData extends stream.Transform{
 
         return `--${this.boundary}${LINE_BREAK}Content-Disposition: form-data; name="${field}"`
             //If we don't have a file name attempt to generate one from content type
-            + (fileName || (fileName = getNameFromMime(contentType))?
+            + (fileName || (fileName = FormData._getNameFromMime(contentType))?
                 `; filename="${fileName + ext}"${LINE_BREAK}`
                 + (contentType?
                     `Content-Type: ${contentType}${LINE_BREAK}`
                     : '')
                 : LINE_BREAK)
             + LINE_BREAK;
+    }
+
+    static _getNameFromMime(mime){
+        return mime.split('/')[0];
     }
 
     _updateLength(value, {header, length}){

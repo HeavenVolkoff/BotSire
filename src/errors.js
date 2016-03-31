@@ -62,7 +62,7 @@ exports.PollingError = class PollingError extends Error{
 
 exports.CommandError = class CommandError extends Error{
     constructor(msg, code){
-        super(`${CommandError.name}: Failed to process command, reason ${msg}`);
+        super(`${CommandError.name}: Failed to process command, reason: ${msg}`);
         this.errno = 'ECMD';
         this.code  = code;
     }

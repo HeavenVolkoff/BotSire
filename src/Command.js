@@ -149,84 +149,82 @@ class Command extends Map{
      * @param that    {Object}
      */
     emit(command, msg, that){
-        return new Promise((resolve, reject) => {
-            let commandModel;
-            let commandName;
-            let commandArgs;
+        let commandModel;
+        let commandName;
+        let commandArgs;
 
-            if(!(commandName = command.match(Regexps.COMMAND_PARSE_NAME))){ //safe measure case RegExp returns null
-                this.onError('INVALID_COMMAND', command, msg);
-                return reject(new errors.CommandError(`Invalid Command: ${command}`, 'INVALID_COMMAND'));
-            }
+        if(!(commandName = command.match(Regexps.COMMAND_PARSE_NAME))){ //safe measure case RegExp returns null
+            this.onError('INVALID_COMMAND', command, msg);
+            return Promise.reject(new errors.CommandError(`Invalid Command: ${command}`, 'INVALID_COMMAND'));
+        }
 
-            if(!(commandModel = this.get(commandName = commandName[0]))){
-                this.onError('UNKNOWN_COMMAND', command, msg, commandName);
-                return reject(new errors.CommandError('Unknown Command', 'UNKNOWN_COMMAND'));
-            }
+        if(!(commandModel = this.get(commandName = commandName[0]))){
+            this.onError('UNKNOWN_COMMAND', command, msg, commandName);
+            return Promise.reject(new errors.CommandError('Unknown Command', 'UNKNOWN_COMMAND'));
+        }
 
-            commandArgs = command.split(Regexps.COMMAND_PARSE_ARGUMENTS).filter(Boolean); //Remove empty args
+        commandArgs = command.split(Regexps.COMMAND_PARSE_ARGUMENTS).filter(Boolean); //Remove empty args
 
-            if(commandModel.annotations){
-                if(util.isArray(commandModel.annotations)){
-                    for(let counter = 0; counter < commandModel.annotations.length; counter++){
-                        if(!this.annotations[commandModel.annotations[counter]](commandName, commandArgs, commandModel, msg)){ //Exec annotation
-                            this.log(`Command ${commandName} aborted by annotation`);
-                            return resolve();
-                        }
-                    }
-
-                }else{
-                    if(!this.annotations[commandModel.annotations](commandName, commandArgs, commandModel, msg)){ //Exec annotation
+        if(commandModel.annotations){
+            if(util.isArray(commandModel.annotations)){
+                for(let counter = 0; counter < commandModel.annotations.length; counter++){
+                    if(!this.annotations[commandModel.annotations[counter]](commandName, commandArgs, commandModel, msg)){ //Exec annotation
                         this.log(`Command ${commandName} aborted by annotation`);
                         return resolve();
                     }
                 }
-            }
-
-            this.log(`Received command: ${commandName} with arguments {${commandArgs.join(', ')}}`);
-
-            if(commandModel.args){
-                if(commandArgs.length < commandModel.args.required){ //Check if we receive at least the required arguments
-                    this.onError('MISSING_ARGUMENT', command, msg, commandName, commandModel);
-                    return reject(new errors.CommandError(`Command ${commandName} received ${commandArgs.length} of the ${commandModel.args.required} required arguments`, 'MISSING_ARGUMENT'));
-
-                }else{
-                    let offset = commandModel.args.required;
-                    let args = commandArgs.slice(0, offset);
-
-                    if(commandModel.args.optional){
-                        let optionalArgs = {};
-
-                        for(let counter = 0; counter < commandModel.args.optional.length && offset < commandArgs.length; offset++, counter++){
-                            optionalArgs[commandModel.args.optional[counter]] = commandArgs[offset];
-                        }
-
-                        args.push(optionalArgs);
-                    }
-
-                    if(commandModel.args.spread){
-                        args.push(commandArgs.slice(offset, commandArgs.length));
-                    }
-
-                    args.push(msg);
-
-                    try{
-                        resolve(commandModel.callback.apply(that, args));
-
-                    }catch(error){
-                        reject(error);
-                    }
-                }
 
             }else{
-                try{
-                    resolve(commandModel.callback.call(that, msg));
-
-                }catch(error){
-                    reject(error);
+                if(!this.annotations[commandModel.annotations](commandName, commandArgs, commandModel, msg)){ //Exec annotation
+                    this.log(`Command ${commandName} aborted by annotation`);
+                    return resolve();
                 }
             }
-        });
+        }
+
+        this.log(`Received command: ${commandName} with arguments {${commandArgs.join(', ')}}`);
+
+        if(commandModel.args){
+            if(commandArgs.length < commandModel.args.required){ //Check if we receive at least the required arguments
+                this.onError('MISSING_ARGUMENT', command, msg, commandName, commandModel);
+                return Promise.reject(new errors.CommandError(`Command ${commandName} received ${commandArgs.length} of the ${commandModel.args.required} required arguments`, 'MISSING_ARGUMENT'));
+
+            }else{
+                let offset = commandModel.args.required;
+                let args = commandArgs.slice(0, offset);
+
+                if(commandModel.args.optional){
+                    let optionalArgs = {};
+
+                    for(let counter = 0; counter < commandModel.args.optional.length && offset < commandArgs.length; offset++, counter++){
+                        optionalArgs[commandModel.args.optional[counter]] = commandArgs[offset];
+                    }
+
+                    args.push(optionalArgs);
+                }
+
+                if(commandModel.args.spread){
+                    args.push(commandArgs.slice(offset, commandArgs.length));
+                }
+
+                args.push(msg);
+
+                try{
+                    resolve(commandModel.callback.apply(that, args));
+
+                }catch(error){
+                   return Promise.reject(error);
+                }
+            }
+
+        }else{
+            try{
+                resolve(commandModel.callback.call(that, msg));
+
+            }catch(error){
+                return Promise.reject(error);
+            }
+        }
     }
 }
 
