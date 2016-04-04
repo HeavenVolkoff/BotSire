@@ -170,14 +170,14 @@ class Command extends Map{
                 for(let counter = 0; counter < commandModel.annotations.length; counter++){
                     if(!this.annotations[commandModel.annotations[counter]](commandName, commandArgs, commandModel, msg)){ //Exec annotation
                         this.log(`Command ${commandName} aborted by annotation`);
-                        return resolve();
+                        return Promise.resolve();
                     }
                 }
 
             }else{
                 if(!this.annotations[commandModel.annotations](commandName, commandArgs, commandModel, msg)){ //Exec annotation
                     this.log(`Command ${commandName} aborted by annotation`);
-                    return resolve();
+                    return Promise.resolve();
                 }
             }
         }
@@ -210,7 +210,7 @@ class Command extends Map{
                 args.push(msg);
 
                 try{
-                    resolve(commandModel.callback.apply(that, args));
+                    Promise.resolve(commandModel.callback.apply(that, args));
 
                 }catch(error){
                    return Promise.reject(error);
@@ -219,7 +219,7 @@ class Command extends Map{
 
         }else{
             try{
-                resolve(commandModel.callback.call(that, msg));
+                Promise.resolve(commandModel.callback.call(that, msg));
 
             }catch(error){
                 return Promise.reject(error);
