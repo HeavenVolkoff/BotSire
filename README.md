@@ -1,9 +1,7 @@
-# BotSire
+# BotSire (DEPRECATED)
 Telegram Bot API library for NodeJS
 
-__DOCUMENTATION UNDER CONSTRUCTION__
-
-**Not production ready, still need some tweaks**
+**DEPRECATED**
 
 For now to run use: *node --harmony_destructuring \<file>*
 
